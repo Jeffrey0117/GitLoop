@@ -4,6 +4,7 @@ import { notifyPush, notifyReview, notifyStartup, notifyGiteaPush, notifyGiteaPR
 import { reviewCommit } from './ai/reviewer.js'
 import { scheduleDailyDigest } from './features/daily-digest.js'
 import { checkAllBranches, formatBranchChange } from './features/branch-monitor.js'
+import { startBot } from './bot/bot.js'
 import { env } from './config/env.js'
 
 console.error('[gitloop] Starting GitLoop...')
@@ -80,5 +81,8 @@ console.error(`[gitloop] GitHub polling every ${env.GITHUB_POLL_INTERVAL}s`)
 
 // Start webhook server
 startServer()
+
+// Start Telegram bot (interactive commands)
+startBot()
 
 console.error('[gitloop] GitLoop is running.')
