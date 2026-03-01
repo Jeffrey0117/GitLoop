@@ -1,94 +1,141 @@
+import { execSync } from 'node:child_process'
+import { getCommitDiff } from '../core/github-monitor.js'
 import { env } from '../config/env.js'
-import { getCommitDiff } from '../core/gitea-client.js'
 import type { CodeReviewResult, ReviewIssue } from '../types/index.js'
 
-/** AI-powered code review using Claude API */
+/**
+ * AI-powered code review using Claude CLI (zero API cost).
+ * Falls back to basic pattern-based analysis if CLI unavailable.
+ */
 export async function reviewCommit(
-  owner: string,
   repo: string,
   sha: string
 ): Promise<CodeReviewResult | null> {
-  if (!env.CLAUDE_API_KEY) return null
+  if (!env.REVIEW_ENABLED) return null
 
   try {
-    const diff = await getCommitDiff(owner, repo, sha)
+    const diff = getCommitDiff(repo, sha)
 
-    // Skip trivial commits (too small or too large)
-    if (diff.length < 50) {
+    if (!diff || diff.length < 50) {
       return { summary: 'Trivial change, skipped review.', issues: [], approved: true }
     }
     if (diff.length > 50000) {
-      return { summary: 'Diff too large for review. Please review manually.', issues: [], approved: false }
+      return { summary: 'Diff too large for AI review.', issues: [], approved: true }
     }
 
-    const prompt = buildReviewPrompt(diff)
-    const result = await callClaude(prompt)
-    return parseReviewResult(result)
+    // Try Claude CLI first (zero cost)
+    const cliResult = reviewWithClaudeCLI(diff)
+    if (cliResult) return cliResult
+
+    // Fallback: basic pattern-based review
+    return basicReview(diff)
   } catch (error) {
-    console.error(`[ai] Review failed for ${sha}:`, error)
+    console.error(`[ai] Review failed for ${repo}@${sha}:`, error)
     return null
   }
 }
 
-function buildReviewPrompt(diff: string): string {
-  return [
-    'You are a senior code reviewer. Analyze this git diff and provide a code review.',
-    'Focus on:',
-    '1. Security issues (API key leaks, injection, XSS)',
-    '2. Breaking changes',
-    '3. Bugs or logic errors',
-    '4. Performance concerns',
+/** Review using Claude CLI — zero cost, uses your existing auth */
+function reviewWithClaudeCLI(diff: string): CodeReviewResult | null {
+  const prompt = [
+    'Review this git diff. Respond ONLY with a JSON object (no markdown, no explanation):',
+    '{"summary":"brief summary","issues":[{"severity":"critical|high|medium|low","file":"name","message":"issue"}],"approved":true/false}',
+    'Focus on: security (exposed secrets, injection), breaking changes, bugs.',
+    'If no issues, return empty issues and approved:true.',
     '',
-    'Respond in JSON format:',
-    '{',
-    '  "summary": "Brief summary of changes",',
-    '  "issues": [',
-    '    {',
-    '      "severity": "critical|high|medium|low",',
-    '      "file": "filename",',
-    '      "line": 42,',
-    '      "message": "Description of the issue",',
-    '      "suggestion": "How to fix it"',
-    '    }',
-    '  ],',
-    '  "approved": true/false',
-    '}',
-    '',
-    'If no significant issues found, return empty issues array and approved: true.',
-    '',
-    '--- DIFF START ---',
-    diff.slice(0, 30000),
-    '--- DIFF END ---',
+    diff.slice(0, 20000),
   ].join('\n')
+
+  try {
+    const output = execSync(
+      'claude --output-format text --model haiku -p -',
+      {
+        input: prompt,
+        encoding: 'utf-8',
+        windowsHide: true,
+        timeout: 60000,
+      }
+    ).trim()
+
+    return parseReviewResult(output)
+  } catch (error) {
+    console.error('[ai] Claude CLI failed:', (error as Error).message?.slice(0, 100))
+    return null
+  }
 }
 
-async function callClaude(prompt: string): Promise<string> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': env.CLAUDE_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
+/** Fallback: basic pattern-based review (no AI needed) */
+function basicReview(diff: string): CodeReviewResult {
+  const issues: ReviewIssue[] = []
+  const lines = diff.split('\n')
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Claude API error (${res.status}): ${text}`)
+  // Check for exposed secrets
+  const secretPatterns: Array<{ pattern: RegExp; name: string }> = [
+    { pattern: /['"]sk-[a-zA-Z0-9]{20,}['"]/, name: 'OpenAI API key' },
+    { pattern: /['"]ghp_[a-zA-Z0-9]{36}['"]/, name: 'GitHub token' },
+    { pattern: /['"]AKIA[A-Z0-9]{16}['"]/, name: 'AWS access key' },
+    { pattern: /password\s*[:=]\s*['"][^'"]{4,}['"]/, name: 'Hardcoded password' },
+  ]
+
+  let currentFile = 'unknown'
+
+  for (const line of lines) {
+    // Track current file
+    const fileMatch = line.match(/^\+\+\+ b\/(.+)/)
+    if (fileMatch) {
+      currentFile = fileMatch[1]
+      continue
+    }
+
+    // Only check added lines
+    if (!line.startsWith('+') || line.startsWith('+++')) continue
+
+    for (const { pattern, name } of secretPatterns) {
+      if (pattern.test(line)) {
+        issues.push({
+          severity: 'critical',
+          file: currentFile,
+          message: `Potential ${name} detected`,
+        })
+      }
+    }
   }
 
-  const data = await res.json() as { content: Array<{ text: string }> }
-  return data.content[0]?.text ?? ''
+  // Check for console.log
+  const consoleLogCount = lines.filter(l =>
+    l.startsWith('+') && /console\.log\(/.test(l)
+  ).length
+  if (consoleLogCount > 0) {
+    issues.push({
+      severity: 'low',
+      file: 'multiple',
+      message: `${consoleLogCount} console.log statement(s) added`,
+    })
+  }
+
+  // Check for large changes
+  const addedLines = lines.filter(l => l.startsWith('+') && !l.startsWith('+++')).length
+  if (addedLines > 500) {
+    issues.push({
+      severity: 'medium',
+      file: 'multiple',
+      message: `Large change: ${addedLines}+ lines added`,
+    })
+  }
+
+  const hasCritical = issues.some(i => i.severity === 'critical')
+
+  return {
+    summary: issues.length === 0
+      ? 'No issues detected.'
+      : `Found ${issues.length} issue(s) via pattern analysis.`,
+    issues,
+    approved: !hasCritical,
+  }
 }
 
 function parseReviewResult(raw: string): CodeReviewResult {
   try {
-    // Extract JSON from response (may be wrapped in markdown)
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       return { summary: raw.slice(0, 200), issues: [], approved: true }

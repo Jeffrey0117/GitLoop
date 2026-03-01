@@ -3,20 +3,24 @@ import { join } from 'node:path'
 import { z } from 'zod'
 
 const envSchema = z.object({
-  // Gitea
-  GITEA_URL: z.string().url().default('http://localhost:3000'),
-  GITEA_ADMIN_TOKEN: z.string().min(1),
+  // Telegram
+  TELEGRAM_BOT_TOKEN: z.string().min(1),
+  TELEGRAM_CHAT_ID: z.string().min(1),
+
+  // GitHub monitoring
+  GITHUB_REPOS: z.string().default(''),  // comma-separated: owner/repo,owner/repo2
+  GITHUB_POLL_INTERVAL: z.coerce.number().default(60),  // seconds
+
+  // Gitea (optional — for future self-hosted git)
+  GITEA_URL: z.string().optional(),
+  GITEA_ADMIN_TOKEN: z.string().optional(),
   GITEA_WEBHOOK_SECRET: z.string().default(''),
 
-  // Telegram (optional)
-  TELEGRAM_BOT_TOKEN: z.string().optional(),
-  TELEGRAM_CHAT_ID: z.string().optional(),
-
-  // AI (optional)
-  CLAUDE_API_KEY: z.string().optional(),
+  // AI review mode
+  REVIEW_ENABLED: z.coerce.boolean().default(true),
 
   // Server
-  PORT: z.coerce.number().default(4100),
+  PORT: z.coerce.number().default(4012),
 })
 
 function loadDotenv(): void {

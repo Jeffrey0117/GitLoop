@@ -1,22 +1,19 @@
 import { env } from '../config/env.js'
-import type { GiteaPushEvent, GiteaPREvent, CodeReviewResult } from '../types/index.js'
-
-const BOT_TOKEN = env.TELEGRAM_BOT_TOKEN
-const CHAT_ID = env.TELEGRAM_CHAT_ID
+import type { CodeReviewResult } from '../types/index.js'
+import type { PushDetected } from '../core/github-monitor.js'
 
 async function sendMessage(text: string, parseMode: 'Markdown' | 'HTML' = 'Markdown'): Promise<void> {
-  if (!BOT_TOKEN || !CHAT_ID) return
-
-  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`
+  const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`
 
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: CHAT_ID,
+        chat_id: env.TELEGRAM_CHAT_ID,
         text,
         parse_mode: parseMode,
+        disable_web_page_preview: true,
       }),
     })
 
@@ -29,51 +26,24 @@ async function sendMessage(text: string, parseMode: 'Markdown' | 'HTML' = 'Markd
   }
 }
 
-/** Notify on push event */
-export async function notifyPush(event: GiteaPushEvent): Promise<void> {
-  const repo = event.repository.full_name
-  const branch = event.ref.replace('refs/heads/', '')
-  const pusher = event.pusher.full_name || event.pusher.login
-  const commitCount = event.commits.length
+/** Notify on push detection */
+export async function notifyPush(push: PushDetected): Promise<void> {
+  const commitCount = push.commits.length
 
-  const commitLines = event.commits
+  const commitLines = push.commits
     .slice(0, 5)
-    .map(c => `  \`${c.sha.slice(0, 7)}\` ${c.message.split('\n')[0]}`)
+    .map(c => `  \`${c.sha.slice(0, 7)}\` ${escapeMarkdown(c.message)}`)
     .join('\n')
 
   const more = commitCount > 5 ? `\n  _...and ${commitCount - 5} more_` : ''
 
   const text = [
-    `*\u{1F4E6} Push* to \`${repo}\` (\`${branch}\`)`,
-    `by ${pusher} \u2014 ${commitCount} commit${commitCount > 1 ? 's' : ''}`,
+    `*\u{1F4E6} Push* to \`${push.repo}\` (\`${push.branch}\`)`,
+    `${commitCount} commit${commitCount > 1 ? 's' : ''}`,
     '',
     commitLines + more,
     '',
-    `[View diff](${event.compare_url})`,
-  ].join('\n')
-
-  await sendMessage(text)
-}
-
-/** Notify on pull request event */
-export async function notifyPR(event: GiteaPREvent): Promise<void> {
-  const pr = event.pull_request
-  const repo = event.repository.full_name
-
-  const emoji = {
-    opened: '\u{1F7E2}',
-    closed: '\u{1F534}',
-    reopened: '\u{1F7E1}',
-    edited: '\u{270F}\u{FE0F}',
-    synchronized: '\u{1F504}',
-  }[event.action] ?? '\u{1F4CB}'
-
-  const text = [
-    `${emoji} *PR #${event.number}* ${event.action} in \`${repo}\``,
-    `*${pr.title}*`,
-    `by ${pr.user.login} \u2014 \`${pr.head.ref}\` \u2192 \`${pr.base.ref}\``,
-    '',
-    `[View PR](${pr.html_url})`,
+    `[View diff](${push.compareUrl})`,
   ].join('\n')
 
   await sendMessage(text)
@@ -92,15 +62,17 @@ export async function notifyReview(
   const issueLines = result.issues
     .slice(0, 5)
     .map(i => {
-      const icon = i.severity === 'critical' ? '\u{1F534}' : i.severity === 'high' ? '\u{1F7E0}' : '\u{1F7E1}'
-      return `  ${icon} \`${i.file}\`: ${i.message}`
+      const icon = i.severity === 'critical' ? '\u{1F534}'
+        : i.severity === 'high' ? '\u{1F7E0}'
+        : '\u{1F7E1}'
+      return `  ${icon} \`${i.file}\`: ${escapeMarkdown(i.message)}`
     })
     .join('\n')
 
   const text = [
-    `${statusEmoji} *AI Review* for \`${repo}\` (\`${commit.slice(0, 7)}\`)`,
+    `${statusEmoji} *AI Review* \u2014 \`${repo}\` (\`${commit.slice(0, 7)}\`)`,
     '',
-    result.summary,
+    escapeMarkdown(result.summary),
     '',
     criticalCount > 0 ? `\u{1F534} ${criticalCount} critical` : '',
     highCount > 0 ? `\u{1F7E0} ${highCount} high` : '',
@@ -111,19 +83,18 @@ export async function notifyReview(
   await sendMessage(text)
 }
 
-/** Notify deploy trigger */
-export async function notifyDeployTrigger(
-  repo: string,
-  branch: string,
-  commit: string
-): Promise<void> {
+/** Notify GitLoop startup */
+export async function notifyStartup(repoCount: number): Promise<void> {
   const text = [
-    `\u{1F680} *Deploy triggered* for \`${repo}\``,
-    `Branch: \`${branch}\``,
-    `Commit: \`${commit.slice(0, 7)}\``,
-    '',
-    `\u{23F3} CloudPipe deploying...`,
+    `\u{1F504} *GitLoop* started`,
+    `Monitoring ${repoCount} repos`,
+    `Polling every ${env.GITHUB_POLL_INTERVAL}s`,
+    env.REVIEW_ENABLED ? '\u{1F916} AI review: ON' : '\u{1F916} AI review: OFF',
   ].join('\n')
 
   await sendMessage(text)
+}
+
+function escapeMarkdown(text: string): string {
+  return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')
 }

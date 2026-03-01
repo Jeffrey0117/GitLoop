@@ -1,58 +1,57 @@
-import { startServer, setWebhookHandlers } from './webhook/server.js'
-import { notifyPush, notifyPR, notifyReview, notifyDeployTrigger } from './telegram/notifier.js'
+import { startServer } from './webhook/server.js'
+import { pollAll, getMonitoredRepos } from './core/github-monitor.js'
+import { notifyPush, notifyReview, notifyStartup } from './telegram/notifier.js'
 import { reviewCommit } from './ai/reviewer.js'
-import type { GiteaPushEvent, GiteaPREvent } from './types/index.js'
+import { env } from './config/env.js'
 
 console.error('[gitloop] Starting GitLoop...')
 
-// Wire up webhook handlers
-setWebhookHandlers({
-  async onPush(event: GiteaPushEvent) {
-    const repo = event.repository.full_name
-    const branch = event.ref.replace('refs/heads/', '')
-    const latestCommit = event.commits[event.commits.length - 1]
+// Discover repos to monitor
+const repos = getMonitoredRepos()
+console.error(`[gitloop] Monitoring ${repos.length} repos:`)
+repos.forEach(r => console.error(`  - ${r}`))
 
-    console.error(`[gitloop] Push to ${repo} (${branch}): ${event.commits.length} commits`)
+// Send startup notification
+notifyStartup(repos.length).catch(() => {})
 
-    // 1. Telegram notification
-    await notifyPush(event)
+// Main polling loop
+async function runPollCycle(): Promise<void> {
+  const pushes = pollAll()
 
-    // 2. AI code review (if configured)
-    if (latestCommit) {
-      const [owner, name] = repo.split('/')
-      const review = await reviewCommit(owner, name, latestCommit.sha)
+  for (const push of pushes) {
+    // 1. Telegram notification — instant
+    await notifyPush(push)
 
-      if (review && review.issues.length > 0) {
-        await notifyReview(repo, latestCommit.sha, review)
+    // 2. AI code review — async per commit
+    if (env.REVIEW_ENABLED && push.commits.length > 0) {
+      const latestCommit = push.commits[0]
+      try {
+        const review = await reviewCommit(push.repo, latestCommit.sha)
+        if (review && (review.issues.length > 0 || !review.approved)) {
+          await notifyReview(push.repo, latestCommit.sha, review)
+        }
+      } catch (error) {
+        console.error(`[gitloop] Review error for ${push.repo}:`, error)
       }
     }
+  }
+}
 
-    // 3. Trigger CloudPipe deploy (if applicable)
-    if (latestCommit) {
-      await notifyDeployTrigger(repo, branch, latestCommit.sha)
-    }
-  },
+// Initial poll (with delay to let things settle)
+setTimeout(() => {
+  console.error('[gitloop] Running initial poll...')
+  runPollCycle().catch(e => console.error('[gitloop] Poll error:', e))
+}, 5000)
 
-  async onPullRequest(event: GiteaPREvent) {
-    const repo = event.repository.full_name
-    console.error(`[gitloop] PR #${event.number} ${event.action} in ${repo}`)
+// Schedule recurring polls
+const intervalMs = env.GITHUB_POLL_INTERVAL * 1000
+setInterval(() => {
+  runPollCycle().catch(e => console.error('[gitloop] Poll error:', e))
+}, intervalMs)
 
-    // Telegram notification
-    await notifyPR(event)
+console.error(`[gitloop] Polling every ${env.GITHUB_POLL_INTERVAL}s`)
 
-    // AI review on new/updated PRs
-    if (event.action === 'opened' || event.action === 'synchronized') {
-      const [owner, name] = repo.split('/')
-      const review = await reviewCommit(owner, name, event.pull_request.head.sha)
-
-      if (review) {
-        await notifyReview(repo, event.pull_request.head.sha, review)
-      }
-    }
-  },
-})
-
-// Start the webhook server
+// Start webhook server (for Gitea/GitHub webhooks)
 startServer()
 
 console.error('[gitloop] GitLoop is running.')
