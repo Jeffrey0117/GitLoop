@@ -1,28 +1,48 @@
-import { startServer } from './webhook/server.js'
+import { startServer, setWebhookHandlers } from './webhook/server.js'
 import { pollAll, getMonitoredRepos } from './core/github-monitor.js'
-import { notifyPush, notifyReview, notifyStartup } from './telegram/notifier.js'
+import { notifyPush, notifyReview, notifyStartup, notifyGiteaPush, notifyGiteaPR, sendRawMessage } from './telegram/notifier.js'
 import { reviewCommit } from './ai/reviewer.js'
+import { scheduleDailyDigest } from './features/daily-digest.js'
+import { checkAllBranches, formatBranchChange } from './features/branch-monitor.js'
 import { env } from './config/env.js'
 
 console.error('[gitloop] Starting GitLoop...')
 
-// Discover repos to monitor
+// Register Gitea webhook handlers → Telegram
+setWebhookHandlers({
+  onPush: async (event) => {
+    console.error(`[gitloop] Gitea push: ${event.repository.full_name} (${event.commits.length} commits)`)
+    await notifyGiteaPush(event)
+  },
+  onPullRequest: async (event) => {
+    console.error(`[gitloop] Gitea PR ${event.action}: ${event.repository.full_name}#${event.number}`)
+    await notifyGiteaPR(event)
+  },
+})
+
+// Discover repos to monitor (GitHub polling)
 const repos = getMonitoredRepos()
-console.error(`[gitloop] Monitoring ${repos.length} repos:`)
+console.error(`[gitloop] Monitoring ${repos.length} GitHub repos:`)
 repos.forEach(r => console.error(`  - ${r}`))
+
+if (env.GITEA_URL) {
+  console.error(`[gitloop] Gitea webhook endpoint: :${env.PORT}/webhook`)
+}
 
 // Send startup notification
 notifyStartup(repos.length).catch(() => {})
 
-// Main polling loop
+// Schedule daily digest at 9:00 AM
+scheduleDailyDigest(sendRawMessage, 9)
+
+// Main polling loop (GitHub + branch monitoring)
 async function runPollCycle(): Promise<void> {
+  // 1. GitHub push detection
   const pushes = pollAll()
 
   for (const push of pushes) {
-    // 1. Telegram notification — instant
     await notifyPush(push)
 
-    // 2. AI code review — async per commit
     if (env.REVIEW_ENABLED && push.commits.length > 0) {
       const latestCommit = push.commits[0]
       try {
@@ -35,23 +55,30 @@ async function runPollCycle(): Promise<void> {
       }
     }
   }
+
+  // 2. Branch monitoring (every poll cycle)
+  const branchChanges = checkAllBranches(repos)
+  for (const change of branchChanges) {
+    const msg = formatBranchChange(change)
+    await sendRawMessage(msg)
+  }
 }
 
-// Initial poll (with delay to let things settle)
+// Initial poll (with delay)
 setTimeout(() => {
-  console.error('[gitloop] Running initial poll...')
+  console.error('[gitloop] Running initial GitHub poll...')
   runPollCycle().catch(e => console.error('[gitloop] Poll error:', e))
 }, 5000)
 
-// Schedule recurring polls
+// Recurring polls
 const intervalMs = env.GITHUB_POLL_INTERVAL * 1000
 setInterval(() => {
   runPollCycle().catch(e => console.error('[gitloop] Poll error:', e))
 }, intervalMs)
 
-console.error(`[gitloop] Polling every ${env.GITHUB_POLL_INTERVAL}s`)
+console.error(`[gitloop] GitHub polling every ${env.GITHUB_POLL_INTERVAL}s`)
 
-// Start webhook server (for Gitea/GitHub webhooks)
+// Start webhook server
 startServer()
 
 console.error('[gitloop] GitLoop is running.')

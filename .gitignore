@@ -6,3 +6,4 @@ dist/
 *.log
 .sessions.json
 data/gitea/
+gitea/

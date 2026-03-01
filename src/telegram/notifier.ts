@@ -1,6 +1,11 @@
 import { env } from '../config/env.js'
-import type { CodeReviewResult } from '../types/index.js'
+import type { CodeReviewResult, GiteaPushEvent, GiteaPREvent } from '../types/index.js'
 import type { PushDetected } from '../core/github-monitor.js'
+
+/** Send raw Markdown message (for features to use) */
+export async function sendRawMessage(text: string): Promise<void> {
+  await sendMessage(text)
+}
 
 async function sendMessage(text: string, parseMode: 'Markdown' | 'HTML' = 'Markdown'): Promise<void> {
   const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`
@@ -90,6 +95,52 @@ export async function notifyStartup(repoCount: number): Promise<void> {
     `Monitoring ${repoCount} repos`,
     `Polling every ${env.GITHUB_POLL_INTERVAL}s`,
     env.REVIEW_ENABLED ? '\u{1F916} AI review: ON' : '\u{1F916} AI review: OFF',
+  ].join('\n')
+
+  await sendMessage(text)
+}
+
+/** Notify on Gitea push webhook */
+export async function notifyGiteaPush(event: GiteaPushEvent): Promise<void> {
+  const repo = event.repository.full_name
+  const branch = event.ref.replace('refs/heads/', '')
+  const commitCount = event.commits.length
+
+  if (commitCount === 0) return
+
+  const commitLines = event.commits
+    .slice(0, 5)
+    .map(c => `  \`${c.sha.slice(0, 7)}\` ${escapeMarkdown(c.message)}`)
+    .join('\n')
+
+  const more = commitCount > 5 ? `\n  _...and ${commitCount - 5} more_` : ''
+
+  const text = [
+    `*\u{1F4E6} Gitea Push* \u2014 \`${escapeMarkdown(repo)}\` (\`${escapeMarkdown(branch)}\`)`,
+    `${commitCount} commit${commitCount > 1 ? 's' : ''}`,
+    '',
+    commitLines + more,
+    '',
+    event.compare_url ? `[View diff](${event.compare_url})` : '',
+  ].filter(Boolean).join('\n')
+
+  await sendMessage(text)
+}
+
+/** Notify on Gitea PR event */
+export async function notifyGiteaPR(event: GiteaPREvent): Promise<void> {
+  const repo = event.repository.full_name
+  const pr = event.pull_request
+  const actionEmoji = event.action === 'opened' ? '\u{1F7E2}'
+    : event.action === 'closed' ? '\u{1F534}'
+    : '\u{1F7E1}'
+
+  const text = [
+    `${actionEmoji} *PR ${event.action}* \u2014 \`${escapeMarkdown(repo)}\``,
+    `*#${event.number}* ${escapeMarkdown(pr.title)}`,
+    `\`${escapeMarkdown(pr.head.ref)}\` \u2192 \`${escapeMarkdown(pr.base.ref)}\``,
+    '',
+    `[View PR](${pr.html_url})`,
   ].join('\n')
 
   await sendMessage(text)
