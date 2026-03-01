@@ -16,8 +16,11 @@ const envSchema = z.object({
   GITEA_ADMIN_TOKEN: z.string().optional(),
   GITEA_WEBHOOK_SECRET: z.string().default(''),
 
-  // AI review mode
+  // AI review
   REVIEW_ENABLED: z.coerce.boolean().default(true),
+  AI_PROVIDER: z.enum(['gemini', 'qwen', 'claude', 'basic']).default('gemini'),
+  AI_MODEL: z.string().optional(),
+  AI_TIMEOUT: z.coerce.number().default(60000),
 
   // Server
   PORT: z.coerce.number().default(4012),
