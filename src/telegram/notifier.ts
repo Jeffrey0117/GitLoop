@@ -1,25 +1,47 @@
 import { env } from '../config/env.js'
 import type { CodeReviewResult, GiteaPushEvent, GiteaPREvent } from '../types/index.js'
 import type { PushDetected } from '../core/github-monitor.js'
+import { storeReview } from '../store/review-store.js'
 
 /** Send raw Markdown message (for features to use) */
 export async function sendRawMessage(text: string): Promise<void> {
   await sendMessage(text)
 }
 
+interface InlineKeyboardButton {
+  readonly text: string
+  readonly callback_data: string
+}
+
 async function sendMessage(text: string, parseMode: 'Markdown' | 'HTML' = 'Markdown'): Promise<void> {
+  await sendMessageWithKeyboard(text, parseMode)
+}
+
+async function sendMessageWithKeyboard(
+  text: string,
+  parseMode: 'Markdown' | 'HTML' = 'Markdown',
+  buttons?: readonly InlineKeyboardButton[]
+): Promise<void> {
   const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`
+
+  const payload: Record<string, unknown> = {
+    chat_id: env.TELEGRAM_CHAT_ID,
+    text,
+    parse_mode: parseMode,
+    disable_web_page_preview: true,
+  }
+
+  if (buttons && buttons.length > 0) {
+    payload.reply_markup = {
+      inline_keyboard: [buttons],
+    }
+  }
 
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: env.TELEGRAM_CHAT_ID,
-        text,
-        parse_mode: parseMode,
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(payload),
     })
 
     if (!res.ok) {
@@ -86,7 +108,16 @@ export async function notifyReview(
     issueLines || '  _沒有發現問題_',
   ].filter(Boolean).join('\n')
 
-  await sendMessage(text)
+  if (result.issues.length > 0) {
+    const reviewId = storeReview(repo, commit, result)
+    const buttons: InlineKeyboardButton[] = [
+      { text: '\u{1F4CB} 建立 Issue', callback_data: `issue:${reviewId}` },
+      { text: '\u{1F527} 自動修復', callback_data: `fix:${reviewId}` },
+    ]
+    await sendMessageWithKeyboard(text, 'Markdown', buttons)
+  } else {
+    await sendMessage(text)
+  }
 }
 
 /** Notify GitLoop startup */

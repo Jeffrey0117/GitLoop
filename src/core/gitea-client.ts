@@ -4,12 +4,12 @@ import type { GiteaRepo, GiteaCommit } from '../types/index.js'
 const BASE_URL = env.GITEA_URL
 const TOKEN = env.GITEA_ADMIN_TOKEN
 
-interface RequestOptions {
+export interface RequestOptions {
   readonly method?: string
   readonly body?: unknown
 }
 
-async function giteaFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function giteaFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body } = options
   const url = `${BASE_URL}/api/v1${path}`
 

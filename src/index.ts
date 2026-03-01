@@ -5,6 +5,7 @@ import { reviewCommit, getActiveProviderName } from './ai/reviewer.js'
 import { scheduleDailyDigest } from './features/daily-digest.js'
 import { checkAllBranches, formatBranchChange } from './features/branch-monitor.js'
 import { startBot } from './bot/bot.js'
+import { startReviewCleanup } from './store/review-store.js'
 import { env } from './config/env.js'
 
 console.error('[gitloop] Starting GitLoop...')
@@ -85,5 +86,8 @@ startServer()
 
 // Start Telegram bot (interactive commands)
 startBot()
+
+// Start periodic cleanup of expired review data
+startReviewCleanup()
 
 console.error('[gitloop] GitLoop is running.')

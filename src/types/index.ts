@@ -77,6 +77,15 @@ export interface DeployTrigger {
   readonly triggeredBy: 'push' | 'manual' | 'pr-merge'
 }
 
+/** Gitea issue */
+export interface GiteaIssue {
+  readonly id: number
+  readonly number: number
+  readonly title: string
+  readonly body: string
+  readonly html_url: string
+}
+
 /** GitHub mirror config */
 export interface MirrorConfig {
   readonly giteaRepo: string

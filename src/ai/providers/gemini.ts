@@ -1,7 +1,21 @@
 import { execSync } from 'node:child_process'
+import { join } from 'node:path'
 import type { AIProvider, AIProviderConfig } from '../types.js'
 import type { CodeReviewResult } from '../../types/index.js'
 import { buildReviewPrompt, parseReviewOutput } from '../review-prompt.js'
+
+/** Resolve gemini CLI path — PM2 may not have npm global in PATH */
+const GEMINI_CMD = join(process.env.APPDATA ?? '', 'npm', 'gemini.cmd')
+
+function runGemini(args: string, input?: string, timeout = 5000): string {
+  return execSync(`"${GEMINI_CMD}" ${args}`, {
+    input,
+    encoding: 'utf-8' as const,
+    windowsHide: true,
+    shell: 'cmd.exe',
+    timeout,
+  }).trim()
+}
 
 /** Gemini CLI provider — default, high free tier */
 export function createGeminiProvider(config: AIProviderConfig): AIProvider {
@@ -12,7 +26,7 @@ export function createGeminiProvider(config: AIProviderConfig): AIProvider {
 
     isAvailable(): boolean {
       try {
-        execSync('gemini --version', { encoding: 'utf-8', windowsHide: true, timeout: 5000 })
+        runGemini('--version')
         return true
       } catch {
         return false
@@ -23,16 +37,7 @@ export function createGeminiProvider(config: AIProviderConfig): AIProvider {
       const prompt = buildReviewPrompt(diff)
 
       try {
-        const output = execSync(
-          `gemini -m ${model} -p -`,
-          {
-            input: prompt,
-            encoding: 'utf-8',
-            windowsHide: true,
-            timeout: config.timeout,
-          }
-        ).trim()
-
+        const output = runGemini(`-m ${model} -p -`, prompt, config.timeout)
         return parseReviewOutput(output)
       } catch (error) {
         console.error('[ai:gemini] Review failed:', (error as Error).message?.slice(0, 100))

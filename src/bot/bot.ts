@@ -4,6 +4,9 @@ import { generateDailyDigest } from '../features/daily-digest.js'
 import { generateDeployReport } from '../features/deploy-tracker.js'
 import { getMonitoredRepos } from '../core/github-monitor.js'
 import { execSync } from 'node:child_process'
+import { getReview, deleteReview, type ReviewContext } from '../store/review-store.js'
+import { createIssuesFromReview, commentOnIssue, closeIssue } from '../core/gitea-issues.js'
+import { requestAutoFix, pollCommandStatus, buildFixPrompt } from '../integrations/claudebot-client.js'
 
 let bot: Telegraf | null = null
 
@@ -134,6 +137,34 @@ export function startBot(): void {
     )
   })
 
+  // Handle inline keyboard callbacks (issue creation + auto-fix)
+  bot.on('callback_query', async (ctx) => {
+    if (!isAuthorized(ctx)) return
+
+    const data = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined
+    if (!data) return
+
+    const separatorIdx = data.indexOf(':')
+    if (separatorIdx === -1) return
+
+    const action = data.slice(0, separatorIdx)
+    const reviewId = data.slice(separatorIdx + 1)
+
+    const review = getReview(reviewId)
+    if (!review) {
+      await ctx.answerCbQuery('審查資料已過期')
+      return
+    }
+
+    if (action === 'issue') {
+      await handleCreateIssues(ctx, reviewId, review)
+    } else if (action === 'fix') {
+      await handleAutoFix(ctx, reviewId, review)
+    } else {
+      await ctx.answerCbQuery('未知操作')
+    }
+  })
+
   bot.launch({ dropPendingUpdates: true })
     .then(() => console.error('[bot] GitLoop bot started'))
     .catch(err => console.error('[bot] Failed to start:', err))
@@ -141,6 +172,123 @@ export function startBot(): void {
   // Graceful shutdown
   process.once('SIGINT', () => bot?.stop('SIGINT'))
   process.once('SIGTERM', () => bot?.stop('SIGTERM'))
+}
+
+async function handleCreateIssues(
+  ctx: Context,
+  reviewId: string,
+  review: ReviewContext
+): Promise<void> {
+  await ctx.answerCbQuery('建立 Issue 中...')
+
+  try {
+    const result = await createIssuesFromReview(
+      review.repo,
+      review.commit,
+      review.result.issues
+    )
+
+    const issueLinks = result.created
+      .map(i => `  [#${i.number}](${i.html_url})`)
+      .join('\n')
+
+    await ctx.reply(
+      [
+        `\u{2705} 已建立 ${result.count} 個 Issue`,
+        '',
+        issueLinks || '  _無 issue 建立_',
+      ].join('\n'),
+      { parse_mode: 'Markdown', link_preview_options: { is_disabled: true } }
+    )
+
+    deleteReview(reviewId)
+  } catch (error) {
+    console.error('[bot] Create issues failed:', error)
+    await ctx.reply(`\u{274C} 建立 Issue 失敗: ${String(error)}`)
+  }
+}
+
+async function handleAutoFix(
+  ctx: Context,
+  reviewId: string,
+  review: ReviewContext
+): Promise<void> {
+  await ctx.answerCbQuery('建立 Issue + 送出修復指令...')
+
+  // Step 1: Create issues first (paper trail)
+  let issueNumbers: readonly number[] = []
+  try {
+    const issueResult = await createIssuesFromReview(
+      review.repo,
+      review.commit,
+      review.result.issues
+    )
+    issueNumbers = issueResult.created.map(i => i.number)
+
+    const issueLinks = issueResult.created
+      .map(i => `  [#${i.number}](${i.html_url})`)
+      .join('\n')
+
+    await ctx.reply(
+      [
+        `\u{1F4CB} 已建立 ${issueResult.count} 個 Issue`,
+        issueLinks,
+        '',
+        `\u{1F527} 正在送出自動修復指令...`,
+      ].join('\n'),
+      { parse_mode: 'Markdown', link_preview_options: { is_disabled: true } }
+    )
+  } catch (error) {
+    console.error('[bot] Create issues for auto-fix failed:', error)
+    await ctx.reply(`\u{26A0}\u{FE0F} Issue 建立失敗，但仍嘗試修復...`)
+  }
+
+  // Step 2: Send fix command to ClaudeBot
+  const project = env.CLAUDEBOT_PROJECT ?? review.repo
+  const prompt = buildFixPrompt(review.repo, review.commit, review.result.issues)
+  const result = await requestAutoFix(project, prompt)
+
+  if (!result.success) {
+    await ctx.reply(`\u{274C} 自動修復失敗: ${result.message}`)
+    return
+  }
+
+  await ctx.reply(`\u{1F527} ${result.message}（背景執行中...）`)
+
+  // Step 3: Background polling — update issues when done
+  if (result.commandId) {
+    pollCommandStatus(result.commandId)
+      .then(async (pollResult) => {
+        const emoji = pollResult.success ? '\u{2705}' : '\u{274C}'
+        const truncated = pollResult.message.length > 500
+          ? `${pollResult.message.slice(0, 500)}...`
+          : pollResult.message
+        await ctx.reply(`${emoji} 自動修復結果:\n${truncated}`)
+
+        // Update Gitea issues with fix result
+        for (const issueNum of issueNumbers) {
+          try {
+            const comment = pollResult.success
+              ? `\u{2705} 已由 ClaudeBot 自動修復\n\n${truncated}`
+              : `\u{274C} 自動修復失敗\n\n${truncated}`
+            await commentOnIssue(review.repo, issueNum, comment)
+            if (pollResult.success) {
+              await closeIssue(review.repo, issueNum)
+            }
+          } catch (err) {
+            console.error(`[bot] Failed to update issue #${issueNum}:`, err)
+          }
+        }
+
+        deleteReview(reviewId)
+      })
+      .catch(async (err) => {
+        console.error('[bot] Poll auto-fix failed:', err)
+        try {
+          await ctx.reply(`\u{274C} 無法取得修復狀態: ${String(err)}`)
+        } catch { /* swallow reply error */ }
+      })
+  }
 }
 
 function checkGiteaHealth(): boolean {
