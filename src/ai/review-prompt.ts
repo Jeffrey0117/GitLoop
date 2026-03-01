@@ -6,10 +6,11 @@ export const MAX_DIFF_LENGTH = 20000
 /** Build the standard review prompt for any AI CLI */
 export function buildReviewPrompt(diff: string): string {
   return [
-    'Review this git diff. Respond ONLY with a JSON object (no markdown, no explanation):',
-    '{"summary":"brief summary","issues":[{"severity":"critical|high|medium|low","file":"name","message":"issue"}],"approved":true/false}',
-    'Focus on: security (exposed secrets, injection), breaking changes, bugs.',
-    'If no issues, return empty issues and approved:true.',
+    '請用繁體中文審查以下 git diff。只回傳 JSON（不要 markdown、不要解釋）：',
+    '{"summary":"簡要總結","issues":[{"severity":"critical|high|medium|low","file":"檔名","message":"問題描述","suggestion":"修改建議"}],"approved":true/false}',
+    '重點檢查：安全性（暴露的密鑰、注入攻擊）、破壞性變更、bug、效能問題。',
+    '每個 issue 都必須附上 suggestion（具體的修改建議）。',
+    '如果沒有問題，回傳空 issues 和 approved:true。',
     '',
     diff.slice(0, MAX_DIFF_LENGTH),
   ].join('\n')

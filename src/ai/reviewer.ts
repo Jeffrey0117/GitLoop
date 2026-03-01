@@ -18,6 +18,11 @@ function getProvider() {
   return provider
 }
 
+/** Get the active AI provider name (triggers lazy init) */
+export function getActiveProviderName(): string {
+  return getProvider().name
+}
+
 /**
  * AI-powered code review with configurable provider.
  * Default: Gemini (free) → Qwen (local) → Claude (precious) → basic patterns.

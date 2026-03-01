@@ -48,7 +48,7 @@ export function startBot(): void {
       `\u{1F504} *GitLoop Status*`,
       '',
       `\u{1F4E6} GitHub repos: ${repos.length}`,
-      `\u{1F5C4}\u{FE0F} Gitea: ${giteaOk ? '\u{2705} Online' : '\u{274C} Offline'}`,
+      `\u{1F5C4}\u{FE0F} Gitea: ${!env.GITEA_URL ? '\u{2796} Not configured' : giteaOk ? '\u{2705} Online' : '\u{274C} Offline'}`,
       `\u{1F916} AI Review: ${env.REVIEW_ENABLED ? 'ON' : 'OFF'}`,
       `\u{23F1}\u{FE0F} Poll interval: ${env.GITHUB_POLL_INTERVAL}s`,
       `\u{1F310} Webhook: :${env.PORT}/webhook`,

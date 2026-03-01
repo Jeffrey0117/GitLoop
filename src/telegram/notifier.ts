@@ -70,31 +70,36 @@ export async function notifyReview(
       const icon = i.severity === 'critical' ? '\u{1F534}'
         : i.severity === 'high' ? '\u{1F7E0}'
         : '\u{1F7E1}'
-      return `  ${icon} \`${i.file}\`: ${escapeMarkdown(i.message)}`
+      const suggestion = i.suggestion ? `\n    \u{1F4A1} _${escapeMarkdown(i.suggestion)}_` : ''
+      return `  ${icon} \`${i.file}\`: ${escapeMarkdown(i.message)}${suggestion}`
     })
     .join('\n')
 
   const text = [
-    `${statusEmoji} *AI Review* \u2014 \`${repo}\` (\`${commit.slice(0, 7)}\`)`,
+    `${statusEmoji} *AI 審查* \u2014 \`${repo}\` (\`${commit.slice(0, 7)}\`)`,
     '',
     escapeMarkdown(result.summary),
     '',
-    criticalCount > 0 ? `\u{1F534} ${criticalCount} critical` : '',
-    highCount > 0 ? `\u{1F7E0} ${highCount} high` : '',
+    criticalCount > 0 ? `\u{1F534} ${criticalCount} 個嚴重問題` : '',
+    highCount > 0 ? `\u{1F7E0} ${highCount} 個高風險` : '',
     '',
-    issueLines || '  _No issues found_',
+    issueLines || '  _沒有發現問題_',
   ].filter(Boolean).join('\n')
 
   await sendMessage(text)
 }
 
 /** Notify GitLoop startup */
-export async function notifyStartup(repoCount: number): Promise<void> {
+export async function notifyStartup(repoCount: number, aiProvider: string): Promise<void> {
+  const aiLine = aiProvider === 'off'
+    ? '\u{1F916} AI 審查：關閉'
+    : `\u{1F916} AI 審查：開啟 (${aiProvider})`
+
   const text = [
-    `\u{1F504} *GitLoop* started`,
-    `Monitoring ${repoCount} repos`,
-    `Polling every ${env.GITHUB_POLL_INTERVAL}s`,
-    env.REVIEW_ENABLED ? '\u{1F916} AI review: ON' : '\u{1F916} AI review: OFF',
+    `\u{1F504} *GitLoop* 已啟動`,
+    `監控 ${repoCount} 個 repos`,
+    `每 ${env.GITHUB_POLL_INTERVAL} 秒輪詢`,
+    aiLine,
   ].join('\n')
 
   await sendMessage(text)

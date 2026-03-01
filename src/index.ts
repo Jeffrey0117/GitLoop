@@ -1,7 +1,7 @@
 import { startServer, setWebhookHandlers } from './webhook/server.js'
 import { pollAll, getMonitoredRepos } from './core/github-monitor.js'
 import { notifyPush, notifyReview, notifyStartup, notifyGiteaPush, notifyGiteaPR, sendRawMessage } from './telegram/notifier.js'
-import { reviewCommit } from './ai/reviewer.js'
+import { reviewCommit, getActiveProviderName } from './ai/reviewer.js'
 import { scheduleDailyDigest } from './features/daily-digest.js'
 import { checkAllBranches, formatBranchChange } from './features/branch-monitor.js'
 import { startBot } from './bot/bot.js'
@@ -30,8 +30,9 @@ if (env.GITEA_URL) {
   console.error(`[gitloop] Gitea webhook endpoint: :${env.PORT}/webhook`)
 }
 
-// Send startup notification
-notifyStartup(repos.length).catch(() => {})
+// Send startup notification (resolve AI provider name first)
+const aiProvider = env.REVIEW_ENABLED ? getActiveProviderName() : 'off'
+notifyStartup(repos.length, aiProvider).catch(() => {})
 
 // Schedule daily digest at 9:00 AM
 scheduleDailyDigest(sendRawMessage, 9)
