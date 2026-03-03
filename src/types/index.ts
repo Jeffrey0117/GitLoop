@@ -68,6 +68,12 @@ export interface ReviewIssue {
   readonly suggestion?: string
 }
 
+/** AI-generated learning insight from code diff */
+export interface LearnInsight {
+  readonly topic: string
+  readonly explanation: string
+}
+
 /** Deploy trigger info */
 export interface DeployTrigger {
   readonly projectId: string

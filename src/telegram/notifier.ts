@@ -1,5 +1,5 @@
 import { env } from '../config/env.js'
-import type { CodeReviewResult, GiteaPushEvent, GiteaPREvent } from '../types/index.js'
+import type { CodeReviewResult, GiteaPushEvent, GiteaPREvent, LearnInsight } from '../types/index.js'
 import type { PushDetected } from '../core/github-monitor.js'
 import { storeReview } from '../store/review-store.js'
 
@@ -110,6 +110,27 @@ export async function notifyReview(
   } else {
     await sendMessage(text)
   }
+}
+
+/** Notify learning insights from a commit */
+export async function notifyLearn(
+  repo: string,
+  commit: string,
+  insights: readonly LearnInsight[]
+): Promise<void> {
+  if (insights.length === 0) return
+
+  const insightLines = insights
+    .map(i => `\u{1F539} *${escapeMarkdown(i.topic)}*\n${escapeMarkdown(i.explanation)}`)
+    .join('\n\n')
+
+  const text = [
+    `\u{1F4DA} *技術學習* \u2014 \`${repo}\` (\`${commit.slice(0, 7)}\`)`,
+    '',
+    insightLines,
+  ].join('\n')
+
+  await sendMessage(text)
 }
 
 /** Notify GitLoop startup */

@@ -1,7 +1,8 @@
 import { startServer, setWebhookHandlers } from './webhook/server.js'
 import { pollAll, getMonitoredRepos } from './core/github-monitor.js'
-import { notifyPush, notifyReview, notifyStartup, notifyGiteaPush, notifyGiteaPR, sendRawMessage } from './telegram/notifier.js'
-import { reviewCommit, getActiveProviderName } from './ai/reviewer.js'
+import { notifyPush, notifyReview, notifyLearn, notifyStartup, notifyGiteaPush, notifyGiteaPR, sendRawMessage } from './telegram/notifier.js'
+import { reviewCommit, generateLearnInsights, getActiveProviderName } from './ai/reviewer.js'
+import { isLearnModeOn } from './bot/learn-state.js'
 import { scheduleDailyDigest } from './features/daily-digest.js'
 import { checkAllBranches, formatBranchChange } from './features/branch-monitor.js'
 import { startBot } from './bot/bot.js'
@@ -48,13 +49,27 @@ async function runPollCycle(): Promise<void> {
 
     if (env.REVIEW_ENABLED && push.commits.length > 0) {
       const latestCommit = push.commits[0]
+      let reviewSummary = ''
       try {
         const review = await reviewCommit(push.repo, latestCommit.sha)
-        if (review && (review.issues.length > 0 || !review.approved)) {
-          await notifyReview(push.repo, latestCommit.sha, review)
+        if (review) {
+          reviewSummary = review.summary
+          if (review.issues.length > 0 || !review.approved) {
+            await notifyReview(push.repo, latestCommit.sha, review)
+          }
         }
       } catch (error) {
         console.error(`[gitloop] Review error for ${push.repo}:`, error)
+      }
+
+      // Learning mode: generate & send tech insights
+      if (isLearnModeOn()) {
+        try {
+          const insights = generateLearnInsights(push.repo, latestCommit.sha, reviewSummary)
+          await notifyLearn(push.repo, latestCommit.sha, insights)
+        } catch (error) {
+          console.error(`[gitloop] Learn error for ${push.repo}:`, error)
+        }
       }
     }
   }

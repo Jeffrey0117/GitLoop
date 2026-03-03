@@ -39,5 +39,22 @@ export function createQwenProvider(config: AIProviderConfig): AIProvider {
         return null
       }
     },
+
+    reviewRaw(prompt: string): string | null {
+      try {
+        return execSync(
+          `qwen -m ${model} -p -`,
+          {
+            input: prompt,
+            encoding: 'utf-8',
+            windowsHide: true,
+            timeout: config.timeout,
+          }
+        ).trim()
+      } catch (error) {
+        console.error('[ai:qwen] Raw prompt failed:', (error as Error).message?.slice(0, 100))
+        return null
+      }
+    },
   }
 }

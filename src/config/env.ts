@@ -22,6 +22,9 @@ const envSchema = z.object({
   AI_MODEL: z.string().optional(),
   AI_TIMEOUT: z.coerce.number().default(60000),
 
+  // Learning mode
+  LEARN_MODE: z.coerce.boolean().default(false),
+
   // ClaudeBot integration
   CLAUDEBOT_URL: z.string().default('http://localhost:3100'),
   CLAUDEBOT_PROJECT: z.string().optional(),

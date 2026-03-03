@@ -44,5 +44,14 @@ export function createGeminiProvider(config: AIProviderConfig): AIProvider {
         return null
       }
     },
+
+    reviewRaw(prompt: string): string | null {
+      try {
+        return runGemini(`-m ${model} -p -`, prompt, config.timeout)
+      } catch (error) {
+        console.error('[ai:gemini] Raw prompt failed:', (error as Error).message?.slice(0, 100))
+        return null
+      }
+    },
   }
 }

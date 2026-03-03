@@ -2,7 +2,8 @@ import { getCommitDiff } from '../core/github-monitor.js'
 import { env } from '../config/env.js'
 import { createProvider } from './provider-factory.js'
 import { basicReview } from './basic-review.js'
-import type { CodeReviewResult } from '../types/index.js'
+import { buildLearnPrompt, parseLearnOutput } from './learn-prompt.js'
+import type { CodeReviewResult, LearnInsight } from '../types/index.js'
 
 /** Lazily initialized AI provider */
 let provider: ReturnType<typeof createProvider> | null = null
@@ -52,5 +53,33 @@ export async function reviewCommit(
   } catch (error) {
     console.error(`[ai] Review failed for ${repo}@${sha}:`, error)
     return null
+  }
+}
+
+/**
+ * Generate learning insights from a commit diff.
+ * Uses the same AI provider as code review, with a teaching-oriented prompt.
+ * Gracefully returns empty array on failure — never blocks the main flow.
+ */
+export function generateLearnInsights(
+  repo: string,
+  sha: string,
+  reviewSummary: string
+): readonly LearnInsight[] {
+  try {
+    const diff = getCommitDiff(repo, sha)
+    if (!diff || diff.length < 100) return []
+
+    const prompt = buildLearnPrompt(diff, reviewSummary)
+    const provider = getProvider()
+
+    // Reuse the provider's internal execution to run a custom prompt
+    const output = provider.reviewRaw?.(prompt)
+    if (!output) return []
+
+    return parseLearnOutput(output)
+  } catch (error) {
+    console.error(`[ai] Learn insights failed for ${repo}@${sha}:`, error)
+    return []
   }
 }

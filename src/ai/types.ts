@@ -10,6 +10,8 @@ export interface AIProvider {
   isAvailable(): boolean
   /** Review a git diff and return structured results */
   review(diff: string): CodeReviewResult | null
+  /** Run a raw prompt and return the raw output string (for learn mode, etc.) */
+  reviewRaw?(prompt: string): string | null
 }
 
 /** Provider configuration from environment */

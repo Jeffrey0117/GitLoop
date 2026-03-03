@@ -39,5 +39,22 @@ export function createClaudeProvider(config: AIProviderConfig): AIProvider {
         return null
       }
     },
+
+    reviewRaw(prompt: string): string | null {
+      try {
+        return execSync(
+          `claude --output-format text --model ${model} -p -`,
+          {
+            input: prompt,
+            encoding: 'utf-8',
+            windowsHide: true,
+            timeout: config.timeout,
+          }
+        ).trim()
+      } catch (error) {
+        console.error('[ai:claude] Raw prompt failed:', (error as Error).message?.slice(0, 100))
+        return null
+      }
+    },
   }
 }
