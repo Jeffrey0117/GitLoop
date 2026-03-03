@@ -62,7 +62,6 @@ export interface CodeReviewResult {
 }
 
 export interface ReviewIssue {
-  readonly severity: 'critical' | 'high' | 'medium' | 'low'
   readonly file: string
   readonly line?: number
   readonly message: string

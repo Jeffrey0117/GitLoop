@@ -31,9 +31,8 @@ function repoNameFrom(fullName: string): string {
 }
 
 /**
- * Create issues from AI review results.
- * - critical/high → one issue each
- * - medium/low → merged into a single issue
+ * Create a single issue from AI review results.
+ * All issues are merged into one Gitea issue.
  */
 export async function createIssuesFromReview(
   giteaRepo: string,
@@ -44,67 +43,18 @@ export async function createIssuesFromReview(
   const repo = repoNameFrom(giteaRepo)
   const created: GiteaIssue[] = []
 
-  const critical = issues.filter(i => i.severity === 'critical')
-  const high = issues.filter(i => i.severity === 'high')
-  const lower = issues.filter(i => i.severity === 'medium' || i.severity === 'low')
+  if (issues.length === 0) return { created, count: 0 }
 
-  // Critical: one issue each
-  for (const issue of critical) {
-    const title = `🔴 嚴重問題：${issue.file} — ${truncate(issue.message, 60)}`
-    const body = formatIssueBody(commit, issue)
-    try {
-      const result = await createIssue({ owner, repo, title, body })
-      created.push(result)
-    } catch (error) {
-      console.error(`[gitea-issues] Failed to create critical issue:`, error)
-    }
-  }
-
-  // High: one issue each
-  for (const issue of high) {
-    const title = `🟠 高風險：${issue.file} — ${truncate(issue.message, 60)}`
-    const body = formatIssueBody(commit, issue)
-    try {
-      const result = await createIssue({ owner, repo, title, body })
-      created.push(result)
-    } catch (error) {
-      console.error(`[gitea-issues] Failed to create high issue:`, error)
-    }
-  }
-
-  // Medium + Low: merged into one
-  if (lower.length > 0) {
-    const title = `🟡 AI 審查：${lower.length} 個中低風險問題 (${commit.slice(0, 7)})`
-    const body = formatMergedIssueBody(commit, lower)
-    try {
-      const result = await createIssue({ owner, repo, title, body })
-      created.push(result)
-    } catch (error) {
-      console.error(`[gitea-issues] Failed to create merged issue:`, error)
-    }
+  const title = `🔍 AI 審查：${issues.length} 個問題 (${commit.slice(0, 7)})`
+  const body = formatMergedIssueBody(commit, issues)
+  try {
+    const result = await createIssue({ owner, repo, title, body })
+    created.push(result)
+  } catch (error) {
+    console.error(`[gitea-issues] Failed to create issue:`, error)
   }
 
   return { created, count: created.length }
-}
-
-function formatIssueBody(commit: string, issue: ReviewIssue): string {
-  const lines = [
-    `## AI 審查發現`,
-    '',
-    `**Commit**: \`${commit.slice(0, 7)}\``,
-    `**嚴重度**: ${severityLabel(issue.severity)}`,
-    `**檔案**: \`${issue.file}\`${issue.line ? ` (第 ${issue.line} 行)` : ''}`,
-    '',
-    `### 問題描述`,
-    issue.message,
-  ]
-
-  if (issue.suggestion) {
-    lines.push('', `### 建議修復`, issue.suggestion)
-  }
-
-  lines.push('', '---', '_此 issue 由 GitLoop AI 審查自動建立_')
-  return lines.join('\n')
 }
 
 function formatMergedIssueBody(commit: string, issues: readonly ReviewIssue[]): string {
@@ -118,7 +68,7 @@ function formatMergedIssueBody(commit: string, issues: readonly ReviewIssue[]): 
 
   for (const issue of issues) {
     lines.push(
-      `### ${severityLabel(issue.severity)} \`${issue.file}\`${issue.line ? ` (第 ${issue.line} 行)` : ''}`,
+      `### \`${issue.file}\`${issue.line ? ` (第 ${issue.line} 行)` : ''}`,
       issue.message,
       issue.suggestion ? `\n> 💡 ${issue.suggestion}` : '',
       ''
@@ -127,16 +77,6 @@ function formatMergedIssueBody(commit: string, issues: readonly ReviewIssue[]): 
 
   lines.push('---', '_此 issue 由 GitLoop AI 審查自動建立_')
   return lines.join('\n')
-}
-
-function severityLabel(severity: string): string {
-  switch (severity) {
-    case 'critical': return '🔴 嚴重'
-    case 'high': return '🟠 高'
-    case 'medium': return '🟡 中'
-    case 'low': return '🟢 低'
-    default: return severity
-  }
 }
 
 /** Add a comment to an existing issue */

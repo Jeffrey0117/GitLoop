@@ -99,7 +99,7 @@ export function buildFixPrompt(
     .map((issue, i) => {
       const loc = issue.line ? `${issue.file}:${issue.line}` : issue.file
       const sug = issue.suggestion ? `\n   建議：${issue.suggestion}` : ''
-      return `${i + 1}. [${issue.severity}] ${loc}\n   ${issue.message}${sug}`
+      return `${i + 1}. ${loc}\n   ${issue.message}${sug}`
     })
     .join('\n\n')
 

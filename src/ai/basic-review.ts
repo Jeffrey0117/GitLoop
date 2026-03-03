@@ -25,7 +25,7 @@ export function basicReview(diff: string): CodeReviewResult {
 
     for (const { pattern, name } of SECRET_PATTERNS) {
       if (pattern.test(line)) {
-        issues.push({ severity: 'critical', file: currentFile, message: `Potential ${name} detected` })
+        issues.push({ file: currentFile, message: `Potential ${name} detected` })
       }
     }
   }
@@ -34,21 +34,19 @@ export function basicReview(diff: string): CodeReviewResult {
     l.startsWith('+') && /console\.log\(/.test(l)
   ).length
   if (consoleLogCount > 0) {
-    issues.push({ severity: 'low', file: 'multiple', message: `${consoleLogCount} console.log statement(s) added` })
+    issues.push({ file: 'multiple', message: `${consoleLogCount} console.log statement(s) added` })
   }
 
   const addedLines = lines.filter(l => l.startsWith('+') && !l.startsWith('+++')).length
   if (addedLines > 500) {
-    issues.push({ severity: 'medium', file: 'multiple', message: `Large change: ${addedLines}+ lines added` })
+    issues.push({ file: 'multiple', message: `Large change: ${addedLines}+ lines added` })
   }
-
-  const hasCritical = issues.some(i => i.severity === 'critical')
 
   return {
     summary: issues.length === 0
       ? 'No issues detected.'
       : `Found ${issues.length} issue(s) via pattern analysis.`,
     issues,
-    approved: !hasCritical,
+    approved: issues.length === 0,
   }
 }

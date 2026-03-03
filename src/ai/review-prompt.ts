@@ -7,7 +7,7 @@ export const MAX_DIFF_LENGTH = 20000
 export function buildReviewPrompt(diff: string): string {
   return [
     '請用繁體中文審查以下 git diff。只回傳 JSON（不要 markdown、不要解釋）：',
-    '{"summary":"簡要總結","issues":[{"severity":"critical|high|medium|low","file":"檔名","message":"問題描述","suggestion":"修改建議"}],"approved":true/false}',
+    '{"summary":"簡要總結","issues":[{"file":"檔名","message":"問題描述","suggestion":"修改建議"}],"approved":true/false}',
     '重點檢查：安全性（暴露的密鑰、注入攻擊）、破壞性變更、bug、效能問題。',
     '每個 issue 都必須附上 suggestion（具體的修改建議）。',
     '如果沒有問題，回傳空 issues 和 approved:true。',
@@ -33,7 +33,6 @@ export function parseReviewOutput(raw: string): CodeReviewResult {
     return {
       summary: parsed.summary ?? 'No summary',
       issues: (parsed.issues ?? []).map(i => ({
-        severity: i.severity ?? 'low',
         file: i.file ?? 'unknown',
         line: i.line,
         message: i.message ?? '',

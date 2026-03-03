@@ -83,17 +83,12 @@ export async function notifyReview(
   result: CodeReviewResult
 ): Promise<void> {
   const statusEmoji = result.approved ? '\u{2705}' : '\u{26A0}\u{FE0F}'
-  const criticalCount = result.issues.filter(i => i.severity === 'critical').length
-  const highCount = result.issues.filter(i => i.severity === 'high').length
 
   const issueLines = result.issues
     .slice(0, 5)
     .map(i => {
-      const icon = i.severity === 'critical' ? '\u{1F534}'
-        : i.severity === 'high' ? '\u{1F7E0}'
-        : '\u{1F7E1}'
       const suggestion = i.suggestion ? `\n    \u{1F4A1} _${escapeMarkdown(i.suggestion)}_` : ''
-      return `  ${icon} \`${i.file}\`: ${escapeMarkdown(i.message)}${suggestion}`
+      return `  \u{1F539} \`${i.file}\`: ${escapeMarkdown(i.message)}${suggestion}`
     })
     .join('\n')
 
@@ -101,9 +96,6 @@ export async function notifyReview(
     `${statusEmoji} *AI 審查* \u2014 \`${repo}\` (\`${commit.slice(0, 7)}\`)`,
     '',
     escapeMarkdown(result.summary),
-    '',
-    criticalCount > 0 ? `\u{1F534} ${criticalCount} 個嚴重問題` : '',
-    highCount > 0 ? `\u{1F7E0} ${highCount} 個高風險` : '',
     '',
     issueLines || '  _沒有發現問題_',
   ].filter(Boolean).join('\n')
