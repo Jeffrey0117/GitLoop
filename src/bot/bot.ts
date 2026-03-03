@@ -39,7 +39,7 @@ export function startBot(): void {
         '/deploy \u2014 Deploy drift report',
         '/health \u2014 Service health check',
         '/review \u2014 Toggle AI code review',
-        '/learn \u2014 Toggle learning mode',
+        '/learnmode \u2014 Toggle learning mode',
       ].join('\n'),
       { parse_mode: 'Markdown' }
     )
@@ -168,8 +168,8 @@ export function startBot(): void {
     }
   })
 
-  // /learn — toggle learning mode
-  bot.command('learn', (ctx) => {
+  // /learnmode — toggle learning mode
+  bot.command('learnmode', (ctx) => {
     if (!isAuthorized(ctx)) return
     const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase()
 
@@ -186,8 +186,8 @@ export function startBot(): void {
           `\u{1F4DA} *學習模式* — ${status}`,
           '',
           '用法：',
-          '/learn on \u2014 開啟',
-          '/learn off \u2014 關閉',
+          '/learnmode on \u2014 開啟',
+          '/learnmode off \u2014 關閉',
         ].join('\n'),
         { parse_mode: 'Markdown' }
       )
