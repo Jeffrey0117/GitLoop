@@ -8,6 +8,7 @@ import { getReview, deleteReview, type ReviewContext } from '../store/review-sto
 import { createIssuesFromReview, commentOnIssue, closeIssue } from '../core/gitea-issues.js'
 import { requestAutoFix, pollCommandStatus, buildFixPrompt } from '../integrations/claudebot-client.js'
 import { isLearnModeOn, setLearnMode } from './learn-state.js'
+import { isReviewEnabled, setReviewEnabled } from './review-state.js'
 
 let bot: Telegraf | null = null
 
@@ -37,6 +38,7 @@ export function startBot(): void {
         '/branches \u2014 Show branches per repo',
         '/deploy \u2014 Deploy drift report',
         '/health \u2014 Service health check',
+        '/review \u2014 Toggle AI code review',
         '/learn \u2014 Toggle learning mode',
       ].join('\n'),
       { parse_mode: 'Markdown' }
@@ -54,7 +56,7 @@ export function startBot(): void {
       '',
       `\u{1F4E6} GitHub repos: ${repos.length}`,
       `\u{1F5C4}\u{FE0F} Gitea: ${!env.GITEA_URL ? '\u{2796} Not configured' : giteaOk ? '\u{2705} Online' : '\u{274C} Offline'}`,
-      `\u{1F916} AI Review: ${env.REVIEW_ENABLED ? 'ON' : 'OFF'}`,
+      `\u{1F916} AI Review: ${isReviewEnabled() ? 'ON' : 'OFF'}`,
       `\u{1F4DA} Learn Mode: ${isLearnModeOn() ? 'ON' : 'OFF'}`,
       `\u{23F1}\u{FE0F} Poll interval: ${env.GITHUB_POLL_INTERVAL}s`,
       `\u{1F310} Webhook: :${env.PORT}/webhook`,
@@ -138,6 +140,32 @@ export function startBot(): void {
       ].join('\n'),
       { parse_mode: 'Markdown' }
     )
+  })
+
+  // /review — toggle AI code review
+  bot.command('review', (ctx) => {
+    if (!isAuthorized(ctx)) return
+    const arg = ctx.message.text.split(/\s+/)[1]?.toLowerCase()
+
+    if (arg === 'on') {
+      setReviewEnabled(true)
+      ctx.reply('\u{1F916} AI 審查：*已開啟*\n每次 push 會自動審查程式碼', { parse_mode: 'Markdown' })
+    } else if (arg === 'off') {
+      setReviewEnabled(false)
+      ctx.reply('\u{1F916} AI 審查：*已關閉*', { parse_mode: 'Markdown' })
+    } else {
+      const status = isReviewEnabled() ? '\u{2705} ON' : '\u{274C} OFF'
+      ctx.reply(
+        [
+          `\u{1F916} *AI 審查* — ${status}`,
+          '',
+          '用法：',
+          '/review on \u2014 開啟',
+          '/review off \u2014 關閉',
+        ].join('\n'),
+        { parse_mode: 'Markdown' }
+      )
+    }
   })
 
   // /learn — toggle learning mode

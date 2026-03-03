@@ -3,6 +3,7 @@ import { pollAll, getMonitoredRepos } from './core/github-monitor.js'
 import { notifyPush, notifyReview, notifyLearn, notifyStartup, notifyGiteaPush, notifyGiteaPR, sendRawMessage } from './telegram/notifier.js'
 import { reviewCommit, generateLearnInsights, getActiveProviderName } from './ai/reviewer.js'
 import { isLearnModeOn } from './bot/learn-state.js'
+import { isReviewEnabled } from './bot/review-state.js'
 import { scheduleDailyDigest } from './features/daily-digest.js'
 import { checkAllBranches, formatBranchChange } from './features/branch-monitor.js'
 import { startBot } from './bot/bot.js'
@@ -47,7 +48,7 @@ async function runPollCycle(): Promise<void> {
   for (const push of pushes) {
     await notifyPush(push)
 
-    if (env.REVIEW_ENABLED && push.commits.length > 0) {
+    if (isReviewEnabled() && push.commits.length > 0) {
       const latestCommit = push.commits[0]
       let reviewSummary = ''
       try {

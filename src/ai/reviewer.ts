@@ -32,8 +32,6 @@ export async function reviewCommit(
   repo: string,
   sha: string
 ): Promise<CodeReviewResult | null> {
-  if (!env.REVIEW_ENABLED) return null
-
   try {
     const diff = getCommitDiff(repo, sha)
 
