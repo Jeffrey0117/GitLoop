@@ -194,29 +194,41 @@ export function startBot(): void {
     }
   })
 
-  // Handle inline keyboard callbacks (issue creation + auto-fix)
+  // Handle inline keyboard callbacks (issue creation + auto-fix + test generation)
   bot.on('callback_query', async (ctx) => {
     if (!isAuthorized(ctx)) return
 
     const data = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : undefined
     if (!data) return
 
+    // Handle "skip" action (no colon separator)
+    if (data === 'skip') {
+      await ctx.answerCbQuery('已跳過')
+      return
+    }
+
     const separatorIdx = data.indexOf(':')
     if (separatorIdx === -1) return
 
     const action = data.slice(0, separatorIdx)
-    const reviewId = data.slice(separatorIdx + 1)
+    const payload = data.slice(separatorIdx + 1)
 
-    const review = getReview(reviewId)
+    if (action === 'test') {
+      await handleGenerateTests(ctx, payload)
+      return
+    }
+
+    // For issue/fix actions, payload is reviewId
+    const review = getReview(payload)
     if (!review) {
       await ctx.answerCbQuery('審查資料已過期')
       return
     }
 
     if (action === 'issue') {
-      await handleCreateIssues(ctx, reviewId, review)
+      await handleCreateIssues(ctx, payload, review)
     } else if (action === 'fix') {
-      await handleAutoFix(ctx, reviewId, review)
+      await handleAutoFix(ctx, payload, review)
     } else {
       await ctx.answerCbQuery('未知操作')
     }
@@ -262,6 +274,49 @@ async function handleCreateIssues(
   } catch (error) {
     console.error('[bot] Create issues failed:', error)
     await ctx.reply(`\u{274C} 建立 Issue 失敗: ${String(error)}`)
+  }
+}
+
+async function handleGenerateTests(ctx: Context, payload: string): Promise<void> {
+  await ctx.answerCbQuery('生成測試中...')
+
+  // payload format: "repo:commit"
+  const parts = payload.split(':')
+  if (parts.length < 2) {
+    await ctx.reply('\u{274C} 無效的測試生成請求')
+    return
+  }
+
+  const repo = parts.slice(0, -1).join(':') // Handle repo names with colons
+  const commit = parts[parts.length - 1]
+
+  const project = env.CLAUDEBOT_PROJECT ?? repo
+  const prompt = `為 ${repo}@${commit} 生成測試檔案。請用 TDD agent 分析 commit diff，找出缺測試的函數，生成 unit/integration/e2e 測試。確保覆蓋率 80%+。`
+
+  const result = await requestAutoFix(project, prompt)
+
+  if (!result.success) {
+    await ctx.reply(`\u{274C} 測試生成失敗: ${result.message}`)
+    return
+  }
+
+  await ctx.reply(`\u{1F9EA} ${result.message}（背景執行中...）`)
+
+  if (result.commandId) {
+    pollCommandStatus(result.commandId)
+      .then(async (pollResult) => {
+        const emoji = pollResult.success ? '\u{2705}' : '\u{274C}'
+        const truncated = pollResult.message.length > 300
+          ? `${pollResult.message.slice(0, 300)}...`
+          : pollResult.message
+        await ctx.reply(`${emoji} 測試生成結果:\n${truncated}`)
+      })
+      .catch(async (err) => {
+        console.error('[bot] Poll test generation failed:', err)
+        try {
+          await ctx.reply(`\u{274C} 無法取得生成狀態: ${String(err)}`)
+        } catch { /* swallow reply error */ }
+      })
   }
 }
 

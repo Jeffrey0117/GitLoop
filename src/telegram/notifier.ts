@@ -1,5 +1,5 @@
 import { env } from '../config/env.js'
-import type { CodeReviewResult, GiteaPushEvent, GiteaPREvent, LearnInsight } from '../types/index.js'
+import type { CodeReviewResult, GiteaPushEvent, GiteaPREvent, LearnInsight, TestSuggestion } from '../types/index.js'
 import type { PushDetected } from '../core/github-monitor.js'
 import { storeReview } from '../store/review-store.js'
 
@@ -92,20 +92,46 @@ export async function notifyReview(
     })
     .join('\n')
 
-  const text = [
+  const testLines = (result.testSuggestions ?? [])
+    .slice(0, 3)
+    .map(t => {
+      const func = t.function ? `${t.function}()` : ''
+      return `  \u{1F539} \`${t.file}\`${func ? ` - ${func}` : ''} (${t.testType})\n    ${escapeMarkdown(t.reason)}`
+    })
+    .join('\n')
+
+  const sections = [
     `${statusEmoji} *AI 審查* \u2014 \`${repo}\` (\`${commit.slice(0, 7)}\`)`,
     '',
     escapeMarkdown(result.summary),
-    '',
-    issueLines || '  _沒有發現問題_',
-  ].filter(Boolean).join('\n')
+  ]
 
+  if (issueLines) {
+    sections.push('', issueLines)
+  }
+
+  if (testLines) {
+    sections.push('', '\u{1F9EA} *測試建議*', testLines)
+  }
+
+  if (!issueLines && !testLines) {
+    sections.push('', '  _沒有發現問題_')
+  }
+
+  const text = sections.filter(Boolean).join('\n')
+
+  const buttons: InlineKeyboardButton[] = []
   if (result.issues.length > 0) {
     const reviewId = storeReview(repo, commit, result)
-    const buttons: InlineKeyboardButton[] = [
-      { text: '\u{1F4CB} 建立 Issue', callback_data: `issue:${reviewId}` },
-      { text: '\u{1F527} 自動修復', callback_data: `fix:${reviewId}` },
-    ]
+    buttons.push({ text: '\u{1F4CB} 建立 Issue', callback_data: `issue:${reviewId}` })
+    buttons.push({ text: '\u{1F527} 自動修復', callback_data: `fix:${reviewId}` })
+  }
+  if ((result.testSuggestions ?? []).length > 0) {
+    buttons.push({ text: '\u{2705} 生成測試', callback_data: `test:${repo}:${commit}` })
+    buttons.push({ text: '\u{23ED}\u{FE0F} 跳過', callback_data: 'skip' })
+  }
+
+  if (buttons.length > 0) {
     await sendMessageWithKeyboard(text, 'Markdown', buttons)
   } else {
     await sendMessage(text)

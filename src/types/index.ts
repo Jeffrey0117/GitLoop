@@ -59,6 +59,15 @@ export interface CodeReviewResult {
   readonly summary: string
   readonly issues: readonly ReviewIssue[]
   readonly approved: boolean
+  readonly testSuggestions?: readonly TestSuggestion[]
+}
+
+/** Test coverage suggestion */
+export interface TestSuggestion {
+  readonly file: string
+  readonly function?: string
+  readonly reason: string
+  readonly testType: 'unit' | 'integration' | 'e2e'
 }
 
 export interface ReviewIssue {
