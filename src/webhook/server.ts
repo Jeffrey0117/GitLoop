@@ -15,7 +15,6 @@ export function setWebhookHandlers(h: WebhookHandler): void {
   handlers = h
 }
 
-/** Close the server gracefully (for shutdown) */
 export function stopServer(): void {
   if (serverInstance) {
     serverInstance.close()
@@ -25,16 +24,11 @@ export function stopServer(): void {
 
 function verifySignature(payload: string, signature: string): boolean {
   const secret = env.GITEA_WEBHOOK_SECRET
-  if (!secret) return true // no secret configured = skip verification
-
+  if (!secret) return true
   const hmac = createHmac('sha256', secret)
   const expected = hmac.update(payload).digest('hex')
-
   try {
-    return timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expected)
-    )
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
   } catch {
     return false
   }
@@ -55,21 +49,16 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse): Promise
     res.end('Method Not Allowed')
     return
   }
-
   const body = await readBody(req)
   const signature = (req.headers['x-gitea-signature'] as string) ?? ''
-
   if (env.GITEA_WEBHOOK_SECRET && !verifySignature(body, signature)) {
     res.writeHead(401, { 'Content-Type': 'text/plain' })
     res.end('Invalid signature')
     return
   }
-
   const event = req.headers['x-gitea-event'] as string
-
   try {
     const payload = JSON.parse(body)
-
     switch (event) {
       case 'push':
         await handlers.onPush?.(payload as GiteaPushEvent)
@@ -80,7 +69,6 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse): Promise
       default:
         console.error(`[webhook] Unhandled event: ${event}`)
     }
-
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ ok: true }))
   } catch (error) {
@@ -98,12 +86,10 @@ function handleHealth(_req: IncomingMessage, res: ServerResponse): void {
 export function startServer(): void {
   const server = createServer((req, res) => {
     const url = req.url ?? '/'
-
     if (url === '/health' || url === '/api/health') {
       handleHealth(req, res)
       return
     }
-
     if (url === '/webhook' || url === '/api/webhook') {
       handleWebhook(req, res).catch((err) => {
         console.error('[webhook] Unhandled error:', err)
@@ -114,14 +100,12 @@ export function startServer(): void {
       })
       return
     }
-
     res.writeHead(404, { 'Content-Type': 'text/plain' })
     res.end('Not Found')
   })
 
   serverInstance = server
 
-  // Handle port conflicts gracefully (Windows PM2 restart race condition)
   let retryCount = 0
   const MAX_RETRIES = 15
 

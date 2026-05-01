@@ -12,7 +12,6 @@ import { env } from './config/env.js'
 
 console.error('[gitloop] Starting GitLoop...')
 
-// Register Gitea webhook handlers → Telegram
 setWebhookHandlers({
   onPush: async (event) => {
     console.error(`[gitloop] Gitea push: ${event.repository.full_name} (${event.commits.length} commits)`)
@@ -24,7 +23,6 @@ setWebhookHandlers({
   },
 })
 
-// Discover repos to monitor (GitHub polling)
 const repos = getMonitoredRepos()
 console.error(`[gitloop] Monitoring ${repos.length} GitHub repos:`)
 repos.forEach(r => console.error(`  - ${r}`))
@@ -33,17 +31,13 @@ if (env.GITEA_URL) {
   console.error(`[gitloop] Gitea webhook endpoint: :${env.PORT}/webhook`)
 }
 
-// Send startup notification (resolve AI provider name first)
 const aiProvider = env.REVIEW_ENABLED ? getActiveProviderName() : 'off'
 notifyStartup(repos.length, aiProvider).catch(() => {})
 
-// Schedule daily digest at 9:00 AM
 scheduleDailyDigest(sendRawMessage, 9)
 
-// Main polling loop (GitHub + branch monitoring)
 async function runPollCycle(): Promise<void> {
-  // 1. GitHub push detection
-  const pushes = pollAll()
+  const pushes = await pollAll()
 
   for (const push of pushes) {
     await notifyPush(push)
@@ -63,10 +57,9 @@ async function runPollCycle(): Promise<void> {
         console.error(`[gitloop] Review error for ${push.repo}:`, error)
       }
 
-      // Learning mode: generate & send tech insights
       if (isLearnModeOn()) {
         try {
-          const insights = generateLearnInsights(push.repo, latestCommit.sha, reviewSummary)
+          const insights = await generateLearnInsights(push.repo, latestCommit.sha, reviewSummary)
           await notifyLearn(push.repo, latestCommit.sha, insights)
         } catch (error) {
           console.error(`[gitloop] Learn error for ${push.repo}:`, error)
@@ -75,21 +68,18 @@ async function runPollCycle(): Promise<void> {
     }
   }
 
-  // 2. Branch monitoring (every poll cycle)
-  const branchChanges = checkAllBranches(repos)
+  const branchChanges = await checkAllBranches(repos)
   for (const change of branchChanges) {
     const msg = formatBranchChange(change)
     await sendRawMessage(msg)
   }
 }
 
-// Initial poll (with delay)
 setTimeout(() => {
   console.error('[gitloop] Running initial GitHub poll...')
   runPollCycle().catch(e => console.error('[gitloop] Poll error:', e))
 }, 5000)
 
-// Recurring polls
 const intervalMs = env.GITHUB_POLL_INTERVAL * 1000
 setInterval(() => {
   runPollCycle().catch(e => console.error('[gitloop] Poll error:', e))
@@ -97,16 +87,10 @@ setInterval(() => {
 
 console.error(`[gitloop] GitHub polling every ${env.GITHUB_POLL_INTERVAL}s`)
 
-// Start webhook server
 startServer()
-
-// Start Telegram bot (interactive commands)
 startBot()
-
-// Start periodic cleanup of expired review data
 startReviewCleanup()
 
-// Graceful shutdown — release port before PM2 restarts
 function shutdown(signal: string): void {
   console.error(`[gitloop] Received ${signal}, shutting down...`)
   stopServer()
