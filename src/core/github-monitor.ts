@@ -6,6 +6,8 @@ import { env } from '../config/env.js'
 
 const execAsync = promisify(exec)
 
+let cachedRepos: readonly string[] | null = null
+
 const STATE_FILE = join(process.cwd(), 'data', 'commit-state.json')
 
 interface CommitState {
@@ -116,8 +118,9 @@ export async function checkRepo(repo: string): Promise<PushDetected | null> {
 }
 
 export function getMonitoredRepos(): readonly string[] {
+  if (cachedRepos) return cachedRepos
   if (env.GITHUB_REPOS) {
-    return env.GITHUB_REPOS.split(',').map(r => r.trim()).filter(Boolean)
+    cachedRepos = env.GITHUB_REPOS.split(',').map(r => r.trim()).filter(Boolean)
   }
   try {
     const raw = execSync(
