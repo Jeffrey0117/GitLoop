@@ -1,4 +1,4 @@
-import { startServer, setWebhookHandlers } from './webhook/server.js'
+import { startServer, stopServer, setWebhookHandlers } from './webhook/server.js'
 import { pollAll, getMonitoredRepos } from './core/github-monitor.js'
 import { notifyPush, notifyReview, notifyLearn, notifyStartup, notifyGiteaPush, notifyGiteaPR, sendRawMessage } from './telegram/notifier.js'
 import { reviewCommit, generateLearnInsights, getActiveProviderName } from './ai/reviewer.js'
@@ -105,5 +105,14 @@ startBot()
 
 // Start periodic cleanup of expired review data
 startReviewCleanup()
+
+// Graceful shutdown — release port before PM2 restarts
+function shutdown(signal: string): void {
+  console.error(`[gitloop] Received ${signal}, shutting down...`)
+  stopServer()
+  process.exit(0)
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
 
 console.error('[gitloop] GitLoop is running.')

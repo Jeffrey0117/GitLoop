@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { env } from '../config/env.js'
 import type { GiteaPushEvent, GiteaPREvent } from '../types/index.js'
@@ -9,9 +9,18 @@ type WebhookHandler = {
 }
 
 let handlers: WebhookHandler = {}
+let serverInstance: Server | null = null
 
 export function setWebhookHandlers(h: WebhookHandler): void {
   handlers = h
+}
+
+/** Close the server gracefully (for shutdown) */
+export function stopServer(): void {
+  if (serverInstance) {
+    serverInstance.close()
+    serverInstance = null
+  }
 }
 
 function verifySignature(payload: string, signature: string): boolean {
@@ -108,6 +117,25 @@ export function startServer(): void {
 
     res.writeHead(404, { 'Content-Type': 'text/plain' })
     res.end('Not Found')
+  })
+
+  serverInstance = server
+
+  // Handle port conflicts gracefully (Windows PM2 restart race condition)
+  let retryCount = 0
+  const MAX_RETRIES = 15
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE' && retryCount < MAX_RETRIES) {
+      retryCount++
+      const delay = Math.min(retryCount * 500, 3000)
+      console.error(`[gitloop] Port ${env.PORT} busy, retry ${retryCount}/${MAX_RETRIES} in ${delay}ms...`)
+      setTimeout(() => server.listen(env.PORT), delay)
+    } else if (err.code === 'EADDRINUSE') {
+      console.error(`[gitloop] Port ${env.PORT} still busy after ${MAX_RETRIES} retries, running without webhook server`)
+    } else {
+      console.error('[gitloop] Server error:', err)
+    }
   })
 
   server.listen(env.PORT, () => {
