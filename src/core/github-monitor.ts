@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -120,7 +120,6 @@ export function getMonitoredRepos(): readonly string[] {
     return env.GITHUB_REPOS.split(',').map(r => r.trim()).filter(Boolean)
   }
   try {
-    const { execSync } = require('node:child_process')
     const raw = execSync(
       'gh repo list --limit 50 --json nameWithOwner --jq ".[].nameWithOwner"',
       { encoding: 'utf-8', windowsHide: true, timeout: 15000 }
